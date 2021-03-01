@@ -1,4 +1,5 @@
 pub mod metis;
+pub mod dtree;
 
 
 #[cfg(test)]

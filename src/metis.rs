@@ -15,6 +15,7 @@ pub struct MetisGraph{
 
 
 impl MetisGraph{
+    pub fn nnodes(&self) -> usize { self.xadj.len()-1 }
     pub fn panic_if_invalid(&self) -> (){
         assert!(self.xadj.len()>0);
         assert!(self.adjncy.len()>0);
