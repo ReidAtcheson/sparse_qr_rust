@@ -19,7 +19,7 @@ impl MetisGraph{
     pub fn panic_if_invalid(&self) -> (){
         assert!(self.xadj.len()>0);
         assert!(self.adjncy.len()>0);
-        assert!(*self.xadj.last().unwrap()==((self.adjncy.len()+1) as i64));
+        assert!(*self.xadj.last().unwrap()==((self.adjncy.len()) as i64));
         for edge in self.adjncy.iter(){
             assert!(*edge<(self.xadj.len()-1) as i64);
         }
@@ -83,7 +83,6 @@ impl MetisGraph{
             unsafe{ 
                 METIS_ComputeVertexSeparator(&nvtxs,self.xadj.as_ptr(),self.adjncy.as_ptr(),std::ptr::null(),std::ptr::null(),&mut sepsize,part.as_mut_ptr());
             }
-            assert!(sepsize==3);
             part
         };
 
@@ -103,4 +102,51 @@ impl MetisGraph{
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use crate::metis::MetisGraph;
+    use std::collections::BTreeSet;
+    #[test]
+    fn metis_graph_construction() {
+        let xadj : Vec<i64> = vec![0,2,5,8,11,13,16,20,24,28,31,33,36,39,42,44];
+        let adjncy : Vec<i64> = vec![1,5,0,2,6,1,3,7,2,4,8,3,9,0,6,10,1,5,7,11,2,6,8,12,3,7,9,13,4,8,14,5,11,6,10,12,7,11,13,8,12,14,9,13];
+        let _g = MetisGraph::new(xadj,adjncy); 
+    }
 
+    #[test]
+    fn metis_graph_split(){
+        let xadj : Vec<i64> = vec![0,2,5,8,11,13,16,20,24,28,31,33,36,39,42,44];
+        let nnodes=xadj.len()-1;
+        let adjncy : Vec<i64> = vec![1,5,0,2,6,1,3,7,2,4,8,3,9,0,6,10,1,5,7,11,2,6,8,12,3,7,9,13,4,8,14,5,11,6,10,12,7,11,13,8,12,14,9,13];
+        let g = MetisGraph::new(xadj,adjncy); 
+        let (p1,p2,sep) = g.split();
+
+        let s : BTreeSet<i64> = (0..nnodes as i64).collect();
+        let s1 : BTreeSet<i64> = p1.iter().map(|&x|x).collect();
+        let s2 : BTreeSet<i64> = p2.iter().map(|&x|x).collect();
+        let s3 : BTreeSet<i64> = sep.iter().map(|&x|x).collect();
+
+        //Sets s1,s2,s3 should be disjoint from each other
+        assert!(s1.is_disjoint(&s2));
+        assert!(s1.is_disjoint(&s3));
+        assert!(s2.is_disjoint(&s3));
+        let s12 : BTreeSet<i64> = s1.union(&s2).map(|&x|x).collect();
+        let s123 : BTreeSet<i64> = s3.union(&s12).map(|&x|x).collect();
+        assert!(s.is_subset(&s123));
+        assert!(s123.is_subset(&s));
+
+
+    }
+
+    #[test]
+    fn metis_graph_subgraph(){
+        let xadj : Vec<i64> = vec![0,2,5,8,11,13,16,20,24,28,31,33,36,39,42,44];
+        let nnodes=xadj.len()-1;
+        let adjncy : Vec<i64> = vec![1,5,0,2,6,1,3,7,2,4,8,3,9,0,6,10,1,5,7,11,2,6,8,12,3,7,9,13,4,8,14,5,11,6,10,12,7,11,13,8,12,14,9,13];
+        let g = MetisGraph::new(xadj,adjncy); 
+        let (p1,p2,sep) = g.split();
+        let _g1 = g.subgraph(&p1);
+        let _g2 = g.subgraph(&p2);
+    }
+
+}

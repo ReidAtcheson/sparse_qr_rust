@@ -4,6 +4,7 @@ use crate::metis::MetisGraph;
 pub struct DissectionTree{
      parents  : Vec<Option<usize>>,
      children : Vec<Option<(usize,usize)>>,
+     levels : Vec<Vec<usize>>,
      nodes : Vec<Vec<usize>>
 }
 
@@ -68,6 +69,53 @@ impl DissectionTree{
             children
         };
 
-        DissectionTree { parents : parents, children : children,  nodes : nodes}
+        //Finally populate the `levels` array
+        let levels = {
+            let nlevels = {
+                let mut nlevels=0;
+                let mut stack = vec![(0,0)];
+                while let Some((n,level)) = stack.pop(){
+                    if let Some((c1,c2)) = children[n]{
+                        stack.push((c1,level+1));
+                        stack.push((c2,level+1));
+                        nlevels = std::cmp::max(nlevels,level+1);
+                    }
+                }
+                nlevels
+            };
+
+            let mut levels  : Vec<Vec<usize>> = vec![Vec::<usize>::new();nlevels];
+            let mut stack = vec![(0,0)];
+            levels[0].push(0);
+            while let Some((n,level)) = stack.pop(){
+                if let Some((c1,c2)) = children[n]{
+                    stack.push((c1,level+1));
+                    stack.push((c2,level+1));
+                    levels[level].push(c1);
+                    levels[level].push(c2);
+                }
+            }
+            levels
+        };
+
+        DissectionTree { parents : parents, children : children,  levels : levels, nodes : nodes}
     }
+}
+
+
+#[cfg(test)]
+mod tests {
+    use crate::metis::MetisGraph;
+    use crate::dtree::DissectionTree;
+
+
+    #[test]
+    fn dtree_construction() {
+        let xadj : Vec<i64> = vec![0,2,5,8,11,13,16,20,24,28,31,33,36,39,42,44];
+        let adjncy : Vec<i64> = vec![1,5,0,2,6,1,3,7,2,4,8,3,9,0,6,10,1,5,7,11,2,6,8,12,3,7,9,13,4,8,14,5,11,6,10,12,7,11,13,8,12,14,9,13];
+        let g = MetisGraph::new(xadj,adjncy); 
+        let _dtree = DissectionTree::new(&g,3);
+    }
+
+
 }
