@@ -117,5 +117,79 @@ mod tests {
         let _dtree = DissectionTree::new(&g,3);
     }
 
+    #[test]
+    fn dtree_construction_stencil(){
+        let mut xadj = Vec::<i64>::new();
+        let mut adjncy = Vec::<i64>::new();
+        let mut offs=0;
+
+        let mx=64 as i64;
+        let my=64 as i64;
+        let id = |ix : i64,iy : i64|{iy + my*ix};
+        xadj.push(offs);
+        for ix in 0..mx{
+            for iy in 0..my{
+
+                if ix>0{
+                    adjncy.push(id(ix-1,iy));
+                    offs+=1;
+                }
+                if ix<mx-1{
+                    adjncy.push(id(ix+1,iy));
+                    offs+=1;
+                }
+                if iy>0{
+                    adjncy.push(id(ix,iy-1));
+                    offs+=1;
+                }
+                if iy<my-1{
+                    adjncy.push(id(ix,iy+1));
+                    offs+=1;
+                }
+                xadj.push(offs);
+            }
+        }
+        let g = MetisGraph::new(xadj,adjncy); 
+        let _dtree = DissectionTree::new(&g,32);
+    }
+
+    #[test]
+    fn dtree_construction_stencil_squared(){
+        let mut xadj = Vec::<i64>::new();
+        let mut adjncy = Vec::<i64>::new();
+        let mut offs=0;
+
+        let mx=64 as i64;
+        let my=64 as i64;
+        let id = |ix : i64,iy : i64|{iy + my*ix};
+        xadj.push(offs);
+        for ix in 0..mx{
+            for iy in 0..my{
+
+                if ix>0{
+                    adjncy.push(id(ix-1,iy));
+                    offs+=1;
+                }
+                if ix<mx-1{
+                    adjncy.push(id(ix+1,iy));
+                    offs+=1;
+                }
+                if iy>0{
+                    adjncy.push(id(ix,iy-1));
+                    offs+=1;
+                }
+                if iy<my-1{
+                    adjncy.push(id(ix,iy+1));
+                    offs+=1;
+                }
+                xadj.push(offs);
+            }
+        }
+        let g = MetisGraph::new(xadj,adjncy); 
+        let g2 = g.square();
+        let _dtree = DissectionTree::new(&g2,32);
+    }
+
+
 
 }

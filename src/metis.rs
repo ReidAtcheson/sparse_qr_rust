@@ -1,4 +1,8 @@
 use std::collections::BTreeMap;
+use std::collections::BTreeSet;
+use std::string::String;
+use std::fs::File;
+use std::io::Write;
 
 #[link(name = "metis", kind = "static")]
 extern{
@@ -10,8 +14,7 @@ extern{
 
 pub struct MetisGraph{
     xadj : Vec<i64>,
-    adjncy : Vec<i64>
-}
+    adjncy : Vec<i64> }
 
 
 impl MetisGraph{
@@ -26,6 +29,15 @@ impl MetisGraph{
         //TODO: Replace with "is_sorted" when it merges
         for i in 1..self.xadj.len(){
             assert!(self.xadj[i-1]<=self.xadj[i]);
+        }
+
+        //Metis doesn't like self-connections, make sure there are none
+        for i in 1..self.xadj.len(){
+            let beg=self.xadj[i-1];
+            let end=self.xadj[i];
+            for e in self.adjncy[beg as usize..end as usize].iter().cloned(){
+                assert!( (i-1) != e as usize);
+            }
         }
     }
 
@@ -100,6 +112,51 @@ impl MetisGraph{
 
         (p0,p1,psep)
     }
+
+    ///Compute the squared graph
+    pub fn square(&self) -> Self{
+        let mut offs=0;
+        let mut xadj = Vec::<i64>::new();
+        xadj.push(offs);
+        let mut adjncy = Vec::<i64>::new();
+        for i in 1..self.xadj.len(){
+            let beg=self.xadj[i-1];
+            let end=self.xadj[i];
+            let mut s : BTreeSet<i64> = self.adjncy[beg as usize..end as usize].iter().cloned().collect();
+            for e1 in beg..end{
+                let e = self.adjncy[e1 as usize];
+                let beg2 = self.xadj[e as usize];
+                let end2 = self.xadj[e as usize + 1 as usize];
+                let t : BTreeSet<i64> = self.adjncy[beg2 as usize..end2 as usize].iter().cloned().collect();
+                s=s.union(&t).cloned().collect();
+                //Avoid self connections because they make METIS unhappy
+                s.remove(&((i-1) as i64));
+            }
+            offs+=s.len() as i64;
+            xadj.push(offs);
+            for x in s.iter(){
+                adjncy.push(*x);
+            }
+        }
+        MetisGraph::new(xadj,adjncy)
+    }
+
+    pub fn graphviz(&self,fname : String) -> std::io::Result<()>{
+        let mut file = File::create(fname)?;
+        write!(&mut file,"graph g {{ \n")?;
+        for i in 1..self.xadj.len(){
+            let beg=self.xadj[i-1];
+            let end=self.xadj[i];
+            for e in self.adjncy[beg as usize .. end as usize].iter(){
+                if i-1<=*e as usize{
+                    write!(&mut file,"  {} -- {}\n",i-1,e)?;
+                }
+
+            }
+        }
+        write!(&mut file,"}} \n")?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -148,5 +205,15 @@ mod tests {
         let _g1 = g.subgraph(&p1);
         let _g2 = g.subgraph(&p2);
     }
+
+    #[test]
+    fn metis_graph_squared(){
+        let xadj : Vec<i64> = vec![0,2,5,8,11,13,16,20,24,28,31,33,36,39,42,44];
+        let nnodes=xadj.len()-1;
+        let adjncy : Vec<i64> = vec![1,5,0,2,6,1,3,7,2,4,8,3,9,0,6,10,1,5,7,11,2,6,8,12,3,7,9,13,4,8,14,5,11,6,10,12,7,11,13,8,12,14,9,13];
+        let g = MetisGraph::new(xadj,adjncy); 
+        let _g2 = g.square();
+    }
+
 
 }
