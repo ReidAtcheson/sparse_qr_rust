@@ -13,7 +13,7 @@ pub struct CSCSparse<F>{
 }
 
 
-impl <F : Num+Copy> CSCSparse<F>{ 
+impl <F : Num+Copy+std::fmt::Display> CSCSparse<F>{ 
 
     pub fn panic_if_invalid(&self){
         assert!(self.nrows>0);
@@ -83,15 +83,16 @@ impl <F : Num+Copy> CSCSparse<F>{
             *yv=F::zero();
         }
 
-        for xc in x.chunks_exact(self.nrows){
+        for (xc,mut yc) in x.chunks_exact(self.nrows).zip(y.chunks_exact_mut(self.nrows)){
             for j in 0..xc.len(){
                 let beg=self.offsets[j];
                 let end=self.offsets[j+1];
                 for (r,nz) in self.rids[beg..end].iter().zip(self.vals[beg..end].iter()){
-                    y[*r] = y[*r]+x[j]*(*nz);
+                    yc[*r]=yc[*r]+xc[j]*(*nz);
                 }
             }
         }
+
     }
 
     pub fn slice_copy(&self,rows : &Vec<usize>,cols : &Vec<usize>) -> Vec<F>{
@@ -174,6 +175,72 @@ mod tests {
 
         let _a = CSCSparse::new(nrows,ncols,offsets,rids,vals);
     }
+
+    #[test]
+    fn sparse_eval_slice_same(){
+        let mut offsets = Vec::<usize>::new();
+        let mut rids = Vec::<usize>::new();
+        let mut vals = Vec::<f64>::new();
+        let mut offs=0;
+
+        let mx=4 as usize;
+        let my=4 as usize;
+        let nrows=mx*my;
+        let ncols=mx*my;
+        let id = |ix : usize,iy : usize|{iy + my*ix};
+        offsets.push(offs);
+        for ix in 0..mx{
+            for iy in 0..my{
+                rids.push(id(ix,iy));
+                vals.push(1.0);
+                offs+=1;
+                if ix>0{
+                    rids.push(id(ix-1,iy));
+                    vals.push(2.0);
+                    offs+=1;
+                }
+                if ix<mx-1{
+                    rids.push(id(ix+1,iy));
+                    vals.push(3.0);
+                    offs+=1;
+                }
+                if iy>0{
+                    rids.push(id(ix,iy-1));
+                    vals.push(4.0);
+                    offs+=1;
+                }
+                if iy<my-1{
+                    rids.push(id(ix,iy+1));
+                    vals.push(5.0);
+                    offs+=1;
+                }
+                offsets.push(offs);
+            }
+        }
+
+        let a = CSCSparse::new(nrows,ncols,offsets,rids,vals);
+
+        let rows : Vec<usize> = (0..nrows).collect();
+        let cols : Vec<usize> = (0..ncols).collect();
+
+        let m1 = a.slice_copy(&rows,&cols);
+
+        let mut m2 : Vec<f64> = vec![0.0;nrows*ncols];
+        let mut m3 : Vec<f64> = vec![0.0;nrows*ncols];
+        for (i,mut v) in m2.chunks_exact_mut(nrows).enumerate(){
+            v[i]=1.0;
+        }
+        a.eval(&m2,&mut m3);
+
+
+
+
+        for (x,y) in m1.iter().zip(m3.iter()){
+            assert_eq!(*x,*y);
+        }
+
+    }
+
 
 }
 
