@@ -1,4 +1,5 @@
 use num_traits::Num;
+use crate::metis::MetisGraph;
 
 ///A simple compressed column sparse matrix
 pub struct CSCSparse<F>{
@@ -72,6 +73,25 @@ impl <F : Num+Copy+std::fmt::Display> CSCSparse<F>{
         let out = CSCSparse { nrows : nrows, ncols : ncols, offsets : offs,rids : rs, vals : vs};
         out.panic_if_invalid();
         out
+    }
+    pub fn to_metis_graph(&self) -> MetisGraph{
+        let mut offs : i64 = 0;
+        let mut xadj = Vec::<i64>::new();
+        xadj.push(0);
+        let mut adjncy = Vec::<i64>::new();
+
+        for j in 1..self.offsets.len(){
+            let beg=self.offsets[j-1];
+            let end=self.offsets[j];
+            for e in &self.rids[beg..end]{
+                if *e != (j-1){
+                    adjncy.push(*e as i64);
+                    offs+=1;
+                }
+            }
+            xadj.push(offs);
+        }
+        MetisGraph::new(xadj,adjncy)
     }
     pub fn eval(&self,x : &[F], y : &mut [F]) -> (){
         assert!(x.len()>0);
@@ -175,6 +195,53 @@ mod tests {
 
         let _a = CSCSparse::new(nrows,ncols,offsets,rids,vals);
     }
+
+    #[test]
+    fn sparse_make_metis_graph(){
+        let mut offsets = Vec::<usize>::new();
+        let mut rids = Vec::<usize>::new();
+        let mut vals = Vec::<f64>::new();
+        let mut offs=0;
+
+        let mx=32 as usize;
+        let my=32 as usize;
+        let nrows=mx*my;
+        let ncols=mx*my;
+        let id = |ix : usize,iy : usize|{iy + my*ix};
+        offsets.push(offs);
+        for ix in 0..mx{
+            for iy in 0..my{
+                rids.push(id(ix,iy));
+                vals.push(1.0);
+                offs+=1;
+                if ix>0{
+                    rids.push(id(ix-1,iy));
+                    vals.push(1.0);
+                    offs+=1;
+                }
+                if ix<mx-1{
+                    rids.push(id(ix+1,iy));
+                    vals.push(1.0);
+                    offs+=1;
+                }
+                if iy>0{
+                    rids.push(id(ix,iy-1));
+                    vals.push(1.0);
+                    offs+=1;
+                }
+                if iy<my-1{
+                    rids.push(id(ix,iy+1));
+                    vals.push(1.0);
+                    offs+=1;
+                }
+                offsets.push(offs);
+            }
+        }
+
+        let a = CSCSparse::new(nrows,ncols,offsets,rids,vals);
+        let _g = a.to_metis_graph();
+    }
+
 
     #[test]
     fn sparse_eval_slice_same(){

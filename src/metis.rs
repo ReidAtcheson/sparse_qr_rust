@@ -40,6 +40,18 @@ impl MetisGraph{
                 assert!( (i-1) != e as usize);
             }
         }
+
+        //Make sure graph is structurally symmetric
+        for i in 1..self.xadj.len(){
+            let beg=self.xadj[i-1];
+            let end=self.xadj[i];
+            for e in self.adjncy[beg as usize..end as usize].iter().cloned(){
+                let beg2=self.xadj[e as usize];
+                let end2=self.xadj[(e+1) as usize];
+                let n = (i-1) as i64;
+                assert!(self.adjncy[beg2 as usize..end2 as usize].contains(&n));
+            }
+        }
     }
 
     pub fn new(xadj : Vec<i64>, adjncy : Vec<i64>) -> Self{
