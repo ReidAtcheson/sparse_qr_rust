@@ -14,7 +14,8 @@ extern{
 
 pub struct MetisGraph{
     xadj : Vec<i64>,
-    adjncy : Vec<i64> }
+    adjncy : Vec<i64> 
+}
 
 
 impl MetisGraph{

@@ -1,6 +1,6 @@
 pub mod metis;
 pub mod dtree;
-
+pub mod sparse;
 
 #[cfg(test)]
 mod tests {
