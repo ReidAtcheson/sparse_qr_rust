@@ -2,10 +2,10 @@ use crate::metis::MetisGraph;
 
 
 pub struct DissectionTree{
-     parents  : Vec<Option<usize>>,
-     children : Vec<Option<(usize,usize)>>,
-     levels : Vec<Vec<usize>>,
-     nodes : Vec<Vec<usize>>
+     pub parents  : Vec<Option<usize>>,
+     pub children : Vec<Option<(usize,usize)>>,
+     pub levels : Vec<Vec<usize>>,
+     pub nodes : Vec<Vec<usize>>
 }
 
 
@@ -150,7 +150,7 @@ mod tests {
             }
         }
         let g = MetisGraph::new(xadj,adjncy); 
-        let _dtree = DissectionTree::new(&g,32);
+        let _dtree = DissectionTree::new(&g,64);
     }
 
     #[test]

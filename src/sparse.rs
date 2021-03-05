@@ -14,7 +14,7 @@ pub struct CSCSparse<F>{
 }
 
 
-impl <F : Num+Copy+std::fmt::Display> CSCSparse<F>{ 
+impl <F : Num+Copy> CSCSparse<F>{ 
 
     pub fn panic_if_invalid(&self){
         assert!(self.nrows>0);
@@ -74,6 +74,9 @@ impl <F : Num+Copy+std::fmt::Display> CSCSparse<F>{
         out.panic_if_invalid();
         out
     }
+
+    pub fn get_nrows(&self) -> usize{ self.nrows }
+    pub fn get_ncols(&self) -> usize{ self.ncols }
     pub fn to_metis_graph(&self) -> MetisGraph{
         let mut offs : i64 = 0;
         let mut xadj = Vec::<i64>::new();
