@@ -6,6 +6,7 @@ use num_complex::Complex;
 
 pub trait Lapack{
     type F;
+    //TODO: `a` actually gets written here, but restored after xmqr completes. This reference needs to be a mutable reference.
     fn xmqr(side : u8,trans : u8,m : i32,n : i32,k : i32,a : &[Self::F],lda : i32,tau : &[Self::F],c : &mut [Self::F],ldc : i32,work : &mut [Self::F],lwork : i32,info : &mut i32);
     fn xgeqrf(m: i32,n: i32,a: &mut [Self::F],lda: i32,tau: &mut [Self::F],work: &mut [Self::F],lwork: i32,info: &mut i32);
     fn xtrtrs(uplo: u8,trans: u8,diag: u8,n: i32,nrhs: i32,a: &[Self::F],lda: i32,b: &mut [Self::F],ldb: i32,info: &mut i32);

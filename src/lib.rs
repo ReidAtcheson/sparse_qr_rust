@@ -6,6 +6,7 @@ pub mod dtree;
 pub mod sparse;
 pub mod numeric;
 pub mod utility;
+pub mod gallery;
 
 #[cfg(test)]
 mod tests {

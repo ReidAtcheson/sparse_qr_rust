@@ -3,6 +3,7 @@ use crate::sparse::CSCSparse;
 use crate::utility::Lapack;
 use std::collections::BTreeMap;
 use num_traits::Num;
+use num_traits::cast::ToPrimitive;
 
 
 pub struct SparseQR<F>{
@@ -25,22 +26,18 @@ pub struct SparseQR<F>{
     //Including diagonal block.
     tril : Vec<Vec<usize>>,
 
-    //Temporary storage for submatrices.
-    //Option type here used to deallocate
-    //submatrices when no longer needed.
-    temp : Vec<BTreeMap<usize,Vec<F>>>,
-
-
     //Packed storage so that solve phase can proceed
     //with only two calls to LAPACK.
     //Upper triangular block. 
     triu_num : Vec<Vec<F>>,
     //Lower triangular block.
-    tril_num : Vec<Vec<F>>
+    tril_num : Vec<Vec<F>>,
+    //Householder reflector scalar factors
+    taus : Vec<Vec<F>>
 } 
 
 
-impl <F : Lapack+Num+Copy> SparseQR<F>{
+impl <F : Lapack<F=F>+Num+ToPrimitive+Copy> SparseQR<F>{
     pub fn new(dtree : DissectionTree, mat : &CSCSparse<F>) -> Self{
 
         let nnodes=dtree.nodes.len();
@@ -110,6 +107,7 @@ impl <F : Lapack+Num+Copy> SparseQR<F>{
 
         //Loop from bottom level of dissection tree to top level
         let mut tril_num : Vec::<Vec<F>> = vec![Vec::<F>::new();nnodes];
+        let mut taus : Vec::<Vec<F>> = vec![Vec::<F>::new();nnodes];
         for level in dtree.levels.iter().rev(){
             for node in level.iter().cloned(){
                 //Gather lower triangular blocks into a stacked matrix
@@ -127,22 +125,119 @@ impl <F : Lapack+Num+Copy> SparseQR<F>{
                     }
                     offs+=m.len();
                 }
-                //TODO: query optimal workspace size. add tau vectors to the numeric qr struct
-                let mut tau : Vec<F> = vec![F::zero();ncols];
-                let nb=32;
-                F::xgeqrf(nrows as i32,ncols as i32,&mut trilmat,nrows as i32,&tau,
+                //First call queries optimal workspace size
+                let tau = {
+                    let mut tau : Vec<F> = vec![F::zero();ncols];
+                    let lwork : i32 = {
+                        let mut lwork=-1 as i32;
+                        let mut info=0 as i32;
+                        let mut work : Vec<F> = vec![F::zero();1];
+                        F::xgeqrf(nrows as i32,ncols as i32,trilmat.as_mut_slice(),nrows as i32,tau.as_mut_slice(),work.as_mut_slice(),lwork,&mut info);
+                        assert_eq!(info,0);
+                        lwork = work[0].to_f64().unwrap().to_i32().unwrap();
+                        lwork
+                    };
+                    //Second call actually performs factorization
+                    {
+                        let mut info=0 as i32;
+                        let mut work  = vec![F::zero();lwork as usize];
+                        F::xgeqrf(nrows as i32,ncols as i32,trilmat.as_mut_slice(),nrows as i32,tau.as_mut_slice(),work.as_mut_slice(),lwork,&mut info);
+                        assert_eq!(info,0);
+                    }
+                    tau
+                };
+
+                //Iterate up parent paths. 
+                //Apply the newly computed Q^T to upper triangular blocks
+                //for each parent in this path.
+                let mut mp=dtree.parents[node];
+                while let Some(p) = mp{
+                    //Stack upper triangular parts
+                    //into packed matrix storage
+                    let triu_nrows=nrows;
+                    let triu_ncols=dtree.nodes[p].len();
+                    let mut triumat = vec![F::zero();triu_ncols*triu_nrows];
+                    {
+                        let mut offs=0;
+                        for k in tril[node].iter(){
+                            let tmat=temp[p].get(k).unwrap();
+                            for (x,y) in triumat.iter_mut().zip(tmat.iter()){
+                                *x=*y;
+                            }
+                            offs+=tmat.len();
+                        }
+                    }
+
+
+                    //First call to query optimal workspace size
+                    let lwork : i32 = {
+                        let side=b'L';
+                        let trans=b'T';
+                        let mut work = vec![F::zero();1];
+                        let mut lwork = -1 as i32;
+                        let mut info = 0;
+                        F::xmqr(side,trans,triu_nrows as i32,triu_ncols as i32,tau.len() as i32,trilmat.as_slice(),nrows as i32,tau.as_slice(),
+                        triumat.as_mut_slice(),triu_nrows as i32,work.as_mut_slice(),lwork,&mut info);
+                        assert_eq!(info,0);
+                        lwork = work[0].to_f64().unwrap().to_i32().unwrap();
+                        lwork
+                    };
+
+                    //Now apply Q^T
+                    {
+                        let side=b'L';
+                        let trans=b'T';
+                        let mut work = vec![F::zero();lwork as usize];
+                        let mut info = 0;
+                        F::xmqr(side,trans,triu_nrows as i32,triu_ncols as i32,tau.len() as i32,trilmat.as_slice(),nrows as i32,tau.as_slice(),
+                        triumat.as_mut_slice(),triu_nrows as i32,work.as_mut_slice(),lwork,&mut info);
+                        assert_eq!(info,0);
+                    };
+
+                    //Unpack matrices
+                    {
+                        let mut offs=0;
+                        for k in tril[node].iter(){
+                            let tmat=temp[p].get_mut(k).unwrap();
+                            for (x,y) in triumat.iter().zip(tmat.iter_mut()){
+                                *y=*x;
+                            }
+                            offs+=tmat.len();
+                        }
+                    }
+                    mp=dtree.parents[p];
+                }
+
+                //Save tau scalars for the houesholder reflectors
+                taus[node]=tau;
+            }
+        }
+
+        //Factorization complete but now we need to re-pack the upper
+        //triangular matrices
+        let mut triu_num  = vec![Vec::<F>::new();nnodes];
+        for (k,tri) in triu.iter().enumerate(){
+            let ncols=dtree.nodes[k].len();
+            let nrows=tri.iter().map(|&k|dtree.nodes[k].len()).fold(0,|acc,x|acc+x);
+            let mut packed = vec![F::zero();nrows*ncols];
+            let mut offs=0;
+            for t in tri.iter(){
+                let tmat=temp[k].get(t).unwrap();
+                for (x,y) in packed.iter_mut().zip(tmat.iter()){
+                    *x=*y;
+                }
+                offs=tmat.len();
             }
         }
 
 
-
-
-
-
-
-        let triu_num = Vec::<Vec<F>>::new();
         SparseQR { parents : dtree.parents, children : dtree.children, levels : dtree.levels, nodes : dtree.nodes,
-        nrows : mat.get_nrows(), ncols : mat.get_ncols(), triu : triu, tril : tril, temp : temp, triu_num : triu_num, tril_num : tril_num}
+        nrows : mat.get_nrows(), ncols : mat.get_ncols(), triu : triu, tril : tril, triu_num : triu_num, tril_num : tril_num,taus : taus}
+    }
+
+    pub fn solve(&mut self,inout : &mut [F]) -> (){
+        assert!(inout.len()>0);
+        assert!(inout.len() % self.nrows == 0);
     }
 }
 
