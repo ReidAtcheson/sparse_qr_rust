@@ -1,4 +1,8 @@
+use std::fs::File;
+use std::io::Write;
+use std::string::String;
 use crate::metis::MetisGraph;
+use std::collections::BTreeSet;
 
 
 pub struct DissectionTree{
@@ -11,6 +15,38 @@ pub struct DissectionTree{
 
 
 impl DissectionTree{
+    pub fn panic_if_invalid(&self) -> () {
+        assert_eq!(self.levels[0].len(),1);
+        assert_eq!(self.parents[0],None);
+        assert_eq!(self.parents.len(),self.children.len());
+        assert_eq!(self.nodes.len(),self.parents.len());
+
+        for (j,c) in self.children.iter().cloned().enumerate(){
+            if let Some((c1,c2)) = c{
+                let pc1 = self.parents[c1].unwrap();
+                let pc2 = self.parents[c2].unwrap();
+                assert_eq!(pc1,pc2);
+                assert_eq!(pc1,j);
+                assert_eq!(pc2,j);
+            }
+        }
+        for (j,pm) in self.parents.iter().cloned().enumerate(){
+            if let Some(p) = pm{
+                let (c1,c2) = self.children[p].unwrap();
+                assert!(c1 == j || c2 == j);
+            }
+        }
+
+        for j in 0..self.levels.len()-1{
+            for n in self.levels[j].iter().cloned(){
+                let next_level : BTreeSet<usize> = self.levels[j+1].iter().cloned().collect();
+                if let Some((c1,c2)) = self.children[n]{
+                    assert!(next_level.contains(&c1));
+                    assert!(next_level.contains(&c2));
+                }
+            }
+        }
+    }
     ///Recursively splits input graph until every
     ///leaf has fewer than `maxnodes` nodes
     pub fn new(g : &MetisGraph,maxnodes : usize) -> Self{
@@ -29,8 +65,9 @@ impl DissectionTree{
                     let subg=g.subgraph(&ns);
                     let (p1,p2,sep)=subg.split();
 
+
                     //The separator goes into the tree
-                    nodes.push(sep.iter().map(|x|*x as usize).collect());
+                    nodes.push(sep.iter().map(|&id|ns[id as usize] as usize).collect());
                     parents.push(parent);
                     //p1,p2 are partitions and go back into the stack,
                     //remembering the separator they split from.
@@ -57,7 +94,7 @@ impl DissectionTree{
 
         //Now populate `children`
         let children = {
-            let mut children = vec![None;nodes.len()];
+            let mut children : Vec<Option<(usize,usize)>> = vec![None;nodes.len()];
             for (i,sp) in parents.iter().enumerate(){
                 if let Some(p) = sp{
                     children[*p]=match children[*p]{
@@ -81,7 +118,7 @@ impl DissectionTree{
                         nlevels = std::cmp::max(nlevels,level+1);
                     }
                 }
-                nlevels
+                nlevels+1
             };
 
             let mut levels  : Vec<Vec<usize>> = vec![Vec::<usize>::new();nlevels];
@@ -91,22 +128,119 @@ impl DissectionTree{
                 if let Some((c1,c2)) = children[n]{
                     stack.push((c1,level+1));
                     stack.push((c2,level+1));
-                    levels[level].push(c1);
-                    levels[level].push(c2);
+                    levels[level+1].push(c1);
+                    levels[level+1].push(c2);
                 }
             }
             levels
         };
 
-        DissectionTree { parents : parents, children : children,  levels : levels, nodes : nodes}
+        let dtree = DissectionTree { parents : parents, children : children,  levels : levels, nodes : nodes};
+        dtree.panic_if_invalid();
+        dtree
+    }
+
+    pub fn get_permutation(&self) -> Vec<usize>{
+        let nnodes=self.nodes.iter().map(|n|n.len()).fold(0,|acc,x|acc+x);
+        let mut p = vec![0 as usize;nnodes];
+        let mut it=0;
+        for level in self.levels.iter().rev(){
+            for n in level.iter(){
+                for i in self.nodes[*n].iter(){
+                    p[it]=*i;
+                    it+=1;
+                }
+            }
+        }
+        p
+    }
+    //Plot tree to dotfile using parent relationships
+    pub fn to_graphviz_parents(&self,fname : String) -> std::io::Result<()>{
+        let mut file = File::create(fname)?;
+        write!(&mut file,"digraph g {{ \n")?;
+
+        for (i,sp) in self.parents.iter().enumerate(){
+            if let Some(p) = sp{
+                write!(&mut file,"  {} -> {}\n",i,p)?;
+            }
+        }
+        write!(&mut file,"}} \n")?;
+        Ok(())
+    }
+
+    //Plot tree to dotfile using children relationships
+    pub fn to_graphviz_children(&self,fname : String) -> std::io::Result<()>{
+        let mut file = File::create(fname)?;
+        write!(&mut file,"digraph g {{ \n")?;
+
+        for (i,c) in self.children.iter().enumerate(){
+            if let Some((c1,c2)) = c{
+                write!(&mut file,"  {} -> {}\n",i,c1)?;
+                write!(&mut file,"  {} -> {}\n",i,c2)?;
+            }
+        }
+        write!(&mut file,"}} \n")?;
+        Ok(())
     }
 }
 
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeSet;
     use crate::metis::MetisGraph;
     use crate::dtree::DissectionTree;
+    use crate::sparse::CSCSparse;
+    use crate::gallery::laplace2d;
+
+    //Node sets should be a partition
+    #[test]
+    fn dtree_nodes_partition(){
+        let mx=32;
+        let my=32;
+        let m=mx*my;
+        let a = laplace2d::<f64>(mx,my);
+        let g = a.to_metis_graph();
+        let g2 = g.square();
+        let dtree = DissectionTree::new(&g2,100);
+
+        let s1 : BTreeSet<usize> = (0..m).collect();
+        let mut s2 = BTreeSet::<usize>::new();
+        for n in dtree.nodes.iter(){
+            for i in n.iter(){
+                s2.insert(*i);
+            }
+        }
+        let tm = dtree.nodes.iter().map(|n|n.len()).fold(0,|acc,x|acc+x);
+
+        assert_eq!(m,tm);
+        assert_eq!(s2.len(),m);
+        assert_eq!(s1,s2);
+    }
+
+
+
+    //Nested dissection tree should produce a permutation
+    #[test]
+    fn dtree_permutation() {
+        let mx=32;
+        let my=32;
+        let m=mx*my;
+        let a = laplace2d::<f64>(mx,my);
+        let g = a.to_metis_graph();
+        let g2 = g.square();
+        let dtree = DissectionTree::new(&g2,100);
+        let perm = dtree.get_permutation();        
+        //Length of permutation array should be equal to number of equations (rows)
+        //in the input sparse matrix.
+        assert_eq!(perm.len(),m);
+        let s1 : BTreeSet<usize> = (0..m).collect();
+        let s2 : BTreeSet<usize> = perm.iter().cloned().collect();
+        //Check for no duplicate entries in the permutation array
+        assert_eq!(s2.len(),perm.len());
+        //Finally, all indices should be represented in the permutation array
+        assert_eq!(s1,s2);
+    }
 
 
     #[test]

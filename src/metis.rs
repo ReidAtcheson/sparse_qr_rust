@@ -87,9 +87,10 @@ impl MetisGraph{
             //the edge connects to a vertex in the input set.
             //If so, it goes in the subgraph in the new local numbering.
             for j in (beg as usize)..(end as usize){
-                match idmap.get(&self.adjncy[j]){
-                    Some(q) => {adjncy.push(*q); offs+=1;}
-                    None => ()
+                let gedge=&self.adjncy[j];
+                if let Some(ledge) = idmap.get(gedge){
+                    adjncy.push(*ledge); 
+                    offs+=1;
                 }
             }
             xadj.push(offs);

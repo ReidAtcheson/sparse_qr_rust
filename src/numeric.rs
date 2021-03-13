@@ -6,6 +6,42 @@ use num_traits::Num;
 use num_traits::cast::ToPrimitive;
 
 
+fn check_zero_diagonal<F : Num>(nrows : usize, ncols : usize, a : &Vec<F>) -> bool{
+    let mut out : bool = false;
+    for i in 0..ncols{
+        let j=i;
+        if a[i+nrows*j] != F::zero() {
+            out=true;
+        }
+    }
+    out
+}
+
+
+fn panic_zero_diagonal<F : Num>(nrows : usize, ncols : usize, a : &Vec<F>) -> (){
+    for i in 0..ncols{
+        let j=i;
+        assert!( a[i+nrows*j] != F::zero() );
+    }
+}
+
+fn print_mat<F : std::fmt::Display>(nrows : usize, ncols : usize,a : &Vec<F>)->(){
+    for i in 0..nrows{
+        for j in 0..ncols{
+            print!("{} ",a[i+nrows*j]);
+        }
+        println!();
+    }
+}
+fn print_diag<F : std::fmt::Display>(nrows : usize, ncols : usize,a : &Vec<F>)->(){
+    for i in 0..nrows{
+        let j=i;
+        print!("{}\n",a[i+nrows*j]);
+    }
+}
+
+
+
 pub struct SparseQR<F>{
     //Tree data
     parents  : Vec<Option<usize>>,
@@ -33,11 +69,11 @@ pub struct SparseQR<F>{
     //Lower triangular block.
     tril_num : Vec<Vec<F>>,
     //Householder reflector scalar factors
-    taus : Vec<Vec<F>>
+    taus : Vec<Vec<F>>,
 } 
 
 
-impl <F : Lapack<F=F>+Num+ToPrimitive+Copy> SparseQR<F>{
+impl <F : Lapack<F=F>+Num+ToPrimitive+Copy + std::fmt::Display > SparseQR<F>{
     pub fn new(dtree : DissectionTree, mat : &CSCSparse<F>) -> Self{
 
         let nnodes=dtree.nodes.len();
@@ -141,7 +177,14 @@ impl <F : Lapack<F=F>+Num+ToPrimitive+Copy> SparseQR<F>{
                     {
                         let mut info=0 as i32;
                         let mut work  = vec![F::zero();lwork as usize];
+                        let tmp=trilmat.clone();
                         F::xgeqrf(nrows as i32,ncols as i32,trilmat.as_mut_slice(),nrows as i32,tau.as_mut_slice(),work.as_mut_slice(),lwork,&mut info);
+                        if check_zero_diagonal(nrows,ncols,&trilmat){
+                            println!("{:?}",*level);
+                            println!("{:?}",node);
+                            print_mat(nrows,ncols,&tmp);
+                        }
+                        panic_zero_diagonal(nrows,ncols,&trilmat);
                         assert_eq!(info,0);
                     }
                     tau
@@ -232,12 +275,165 @@ impl <F : Lapack<F=F>+Num+ToPrimitive+Copy> SparseQR<F>{
 
 
         SparseQR { parents : dtree.parents, children : dtree.children, levels : dtree.levels, nodes : dtree.nodes,
-        nrows : mat.get_nrows(), ncols : mat.get_ncols(), triu : triu, tril : tril, triu_num : triu_num, tril_num : tril_num,taus : taus}
+        nrows : mat.get_nrows(), ncols : mat.get_ncols(), triu : triu, tril : tril, triu_num : triu_num, tril_num : tril_num,taus : taus
+        }
     }
 
     pub fn solve(&mut self,inout : &mut [F]) -> (){
         assert!(inout.len()>0);
         assert!(inout.len() % self.nrows == 0);
+        let nrhs = inout.len() / self.nrows;
+        //Loop through levels in reverse order
+        //and apply each block's Q^T
+        for level in self.levels.iter().rev(){
+            for node in level.iter().cloned(){
+                //Build permutation vector corresponding to lower triangular part
+                let perm : Vec<usize> = self.tril[node].iter().map(|&n|self.nodes[n].clone()).flatten().collect();
+                let nrows=perm.len();
+                let ncols=self.nodes[node].len();
+                //Permute active data into temporary array
+                let mut tmp = {
+                    let mut tmp = vec![F::zero();nrows*nrhs];
+                    //The temporary array and actual input should have same number of columns
+                    assert_eq!(tmp.len()/nrows,inout.len()/self.nrows);
+                    //Loop over columns
+                    for (xs,ys) in tmp.as_mut_slice().chunks_exact_mut(nrows).zip(inout.chunks_exact(self.nrows)){
+                        //Loop over entries of column
+                        for (i,x) in xs.iter_mut().enumerate(){
+                            let pi=perm[i];
+                            *x=ys[pi];
+                        }
+                    }
+                    tmp
+                };
+                //Apply Q^T to the temporary array
+                let qt=&self.tril_num[node];
+                let tau=&self.taus[node];
+                //First call to query optimal workspace size
+                let lwork : i32 = {
+                    let side=b'L';
+                    let trans=b'T';
+                    let mut work = vec![F::zero();1];
+                    let mut lwork = -1 as i32;
+                    let mut info = 0;
+                    F::xmqr(side,trans,nrows as i32,nrhs as i32,tau.len() as i32,qt.as_slice(),nrows as i32,tau.as_slice(),
+                    tmp.as_mut_slice(),nrows as i32,work.as_mut_slice(),lwork,&mut info);
+                    assert_eq!(info,0);
+                    lwork = work[0].to_f64().unwrap().to_i32().unwrap();
+                    lwork
+                };
+
+                //Now actually apply Q^T
+                {
+                    let side=b'L';
+                    let trans=b'T';
+                    let mut work = vec![F::zero();lwork as usize];
+                    let mut info = 0;
+                    F::xmqr(side,trans,nrows as i32,nrhs as i32,tau.len() as i32,qt.as_slice(),nrows as i32,tau.as_slice(),
+                    tmp.as_mut_slice(),nrows as i32,work.as_mut_slice(),lwork,&mut info);
+                    assert_eq!(info,0);
+                };
+                //Permute data from temporary array back into in/out array
+                for (xs,ys) in tmp.as_slice().chunks_exact(nrows).zip(inout.chunks_exact_mut(self.nrows)){
+                    for (i,x) in xs.iter().enumerate(){
+                        let pi=perm[i];
+                        ys[pi]=*x;
+                    }
+                }
+            }
+        }
+        //Now `inout` has been overwritten with ` Q^T * inout`. We now do back-substitution
+        //which is similar to previous loop but in reversed order starting
+        //with the top-most node of the nested dissection tree
+        for level in self.levels.iter(){
+            for node in level.iter().cloned(){
+                //Get permutation vector corresponding to upper triangular part
+                let perm : Vec<usize> = self.triu[node].iter().map(|&n|self.nodes[n].clone()).flatten().collect();
+                //Permutation corresponding to diagonal block
+                let permd : Vec<usize> = self.nodes[node].clone();
+                let nrows=perm.len();
+                let nrowsd=permd.len();
+                let ncols=self.nodes[node].len();
+                //Permute upper triangular active data into temporary array
+                let mut tmp = {
+                    let mut tmp = vec![F::zero();nrows*nrhs];
+                    //The temporary array and actual input should have same number of columns
+                    assert_eq!(tmp.len()/nrows,inout.len()/self.nrows);
+                    //Loop over columns
+                    for (xs,ys) in tmp.as_mut_slice().chunks_exact_mut(nrowsd).zip(inout.chunks_exact(self.nrows)){
+                        //Loop over entries of column
+                        for (i,x) in xs.iter_mut().enumerate(){
+                            let pi=perm[i];
+                            *x=ys[pi];
+                        }
+                    }
+                    tmp
+                };
+
+                //Permute diagonal block active data into temporary array
+                let mut tmpd = {
+                    let mut tmpd = vec![F::zero();nrowsd*nrhs];
+                    //The temporary array and actual input should have same number of columns
+                    assert_eq!(tmpd.len()/nrowsd,inout.len()/self.nrows);
+                    //Loop over columns
+                    for (xs,ys) in tmpd.as_mut_slice().chunks_exact_mut(nrowsd).zip(inout.chunks_exact(self.nrows)){
+                        //Loop over entries of column
+                        for (i,x) in xs.iter_mut().enumerate(){
+                            let pi=permd[i];
+                            *x=ys[pi];
+                        }
+                    }
+                    tmpd
+                };
+
+
+                //Back-substitution of diagonal block
+                {
+                    let rmat = &self.tril_num[node];
+                    let uplo : u8 =b'U';
+                    let trans : u8 =b'N';
+                    let diag : u8 =b'N';
+                    let n=ncols as i32;
+                    assert_eq!(rmat.len() % ncols, 0);
+                    let lda=(rmat.len()/ncols) as i32;
+                    let ldb=nrows as i32;
+                    let mut info = 0 as i32;
+                    F::xtrtrs(uplo,trans,diag,n,nrhs as i32,&rmat,lda,&mut tmpd,nrowsd as i32,&mut info);
+                    if info!=0{
+                        print_diag(lda as usize,ncols,&rmat);
+                    }
+                    assert_eq!(info,0);
+                }
+
+
+                //Update remaining values
+
+
+
+                //Permute data from temporary array back into in/out array
+                for (xs,ys) in tmp.as_slice().chunks_exact(nrows).zip(inout.chunks_exact_mut(self.nrows)){
+                    for (i,x) in xs.iter().enumerate(){
+                        let pi=perm[i];
+                        ys[pi]=*x;
+                    }
+                }
+                //Permute diagonal block data from temporary array back into in/out array
+                for (xs,ys) in tmpd.as_slice().chunks_exact(nrowsd).zip(inout.chunks_exact_mut(self.nrows)){
+                    //Loop over entries of column
+                    for (i,x) in xs.iter().enumerate(){
+                        let pi=permd[i];
+                        ys[pi]=*x;
+                    }
+                }
+
+
+
+
+
+            }
+        }
+
+
     }
 }
 
@@ -249,6 +445,28 @@ mod tests {
     use crate::metis::MetisGraph;
     use crate::dtree::DissectionTree;
     use crate::numeric::SparseQR;
+    use crate::gallery::laplace2d;
+
+
+    #[test]
+    fn stencil_solve(){
+        let mx=16;
+        let my=16;
+        let m=mx*my;
+
+
+        let a = laplace2d::<f64>(mx,my);
+        let g = a.to_metis_graph();
+        let g2 = g.square();
+        let dtree = DissectionTree::new(&g2,32);
+        let mut fact = SparseQR::new(dtree,&a);
+
+        let rs : Vec<usize> = (0..m).collect();
+        let cs : Vec<usize> = (0..10).collect();
+        let mut ys = a.slice_copy(&rs,&cs);
+        fact.solve(&mut ys);
+    }
+
 
 
     #[test]
