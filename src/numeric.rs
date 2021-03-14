@@ -10,7 +10,7 @@ fn check_zero_diagonal<F : Num>(nrows : usize, ncols : usize, a : &Vec<F>) -> bo
     let mut out : bool = false;
     for i in 0..ncols{
         let j=i;
-        if a[i+nrows*j] != F::zero() {
+        if a[i+nrows*j] == F::zero() {
             out=true;
         }
     }
@@ -73,7 +73,7 @@ pub struct SparseQR<F>{
 } 
 
 
-impl <F : Lapack<F=F>+Num+ToPrimitive+Copy + std::fmt::Display > SparseQR<F>{
+impl <F : Lapack<F=F>+Num+ToPrimitive+Copy + std::fmt::Display> SparseQR<F>{
     pub fn new(dtree : DissectionTree, mat : &CSCSparse<F>) -> Self{
 
         let nnodes=dtree.nodes.len();
@@ -154,13 +154,25 @@ impl <F : Lapack<F=F>+Num+ToPrimitive+Copy + std::fmt::Display > SparseQR<F>{
                 let nmap=&temp[node];
                 let mut offs=0;
                 for tri in tril[node].iter().cloned(){
+                    let lnrows=dtree.nodes[tri].len();
                     let m = nmap.get(&tri).unwrap();
-                    let slice=&mut trilmat[offs..offs+m.len()];
-                    for (x,y) in slice.iter_mut().zip(m.iter()){
-                        *x=*y;
+                    /*
+                    println!("==================");
+                    print_mat(lnrows,ncols,m);
+                    println!("==================");
+                    */
+                    for (xs,ys) in trilmat.chunks_exact_mut(nrows).zip(m.chunks_exact(lnrows)){
+                        for (x,y) in (&mut xs[offs..offs+lnrows]).into_iter().zip(ys){
+                            *x=*y;
+                        }
                     }
-                    offs+=m.len();
+                    offs+=lnrows;
+                    /*
+                    print_mat(nrows,ncols,trilmat);
+                    */
                 }
+
+
                 //First call queries optimal workspace size
                 let tau = {
                     let mut tau : Vec<F> = vec![F::zero();ncols];
@@ -177,14 +189,13 @@ impl <F : Lapack<F=F>+Num+ToPrimitive+Copy + std::fmt::Display > SparseQR<F>{
                     {
                         let mut info=0 as i32;
                         let mut work  = vec![F::zero();lwork as usize];
-                        let tmp=trilmat.clone();
                         F::xgeqrf(nrows as i32,ncols as i32,trilmat.as_mut_slice(),nrows as i32,tau.as_mut_slice(),work.as_mut_slice(),lwork,&mut info);
                         if check_zero_diagonal(nrows,ncols,&trilmat){
                             println!("{:?}",*level);
                             println!("{:?}",node);
-                            print_mat(nrows,ncols,&tmp);
+                            print_mat(nrows,ncols,&trilmat);
+                            panic!("Zero found on diagonal of an R matrix (input sparse matrix was singular)");
                         }
-                        panic_zero_diagonal(nrows,ncols,&trilmat);
                         assert_eq!(info,0);
                     }
                     tau
@@ -204,10 +215,13 @@ impl <F : Lapack<F=F>+Num+ToPrimitive+Copy + std::fmt::Display > SparseQR<F>{
                         let mut offs=0;
                         for k in tril[node].iter(){
                             let tmat=temp[p].get(k).unwrap();
-                            for (x,y) in triumat.iter_mut().zip(tmat.iter()){
-                                *x=*y;
+                            let lnrows=dtree.nodes[*k].len();
+                            for (xs,ys) in triumat.chunks_exact_mut(nrows).zip(tmat.chunks_exact(lnrows)){
+                                for (x,y) in (&mut xs[offs..offs+lnrows]).into_iter().zip(ys){
+                                    *x=*y;
+                                }
                             }
-                            offs+=tmat.len();
+                            offs+=lnrows;
                         }
                     }
 
@@ -239,13 +253,17 @@ impl <F : Lapack<F=F>+Num+ToPrimitive+Copy + std::fmt::Display > SparseQR<F>{
 
                     //Unpack matrices
                     {
+
                         let mut offs=0;
                         for k in tril[node].iter(){
                             let tmat=temp[p].get_mut(k).unwrap();
-                            for (x,y) in triumat.iter().zip(tmat.iter_mut()){
-                                *y=*x;
+                            let lnrows=dtree.nodes[*k].len();
+                            for (xs,ys) in triumat.chunks_exact(nrows).zip(tmat.chunks_exact_mut(lnrows)){
+                                for (x,y) in xs[offs..offs+lnrows].into_iter().zip(ys.iter_mut()){
+                                    *y=*x;
+                                }
                             }
-                            offs+=tmat.len();
+                            offs+=lnrows;
                         }
                     }
                     mp=dtree.parents[p];
@@ -265,11 +283,14 @@ impl <F : Lapack<F=F>+Num+ToPrimitive+Copy + std::fmt::Display > SparseQR<F>{
             let mut packed = vec![F::zero();nrows*ncols];
             let mut offs=0;
             for t in tri.iter(){
+                let lnrows=dtree.nodes[*t].len();
                 let tmat=temp[k].get(t).unwrap();
-                for (x,y) in packed.iter_mut().zip(tmat.iter()){
-                    *x=*y;
+                for (xs,ys) in packed.chunks_exact_mut(nrows).zip(tmat.chunks_exact(lnrows)){
+                    for (x,y) in (&mut xs[offs..offs+lnrows]).into_iter().zip(ys.iter()){
+                        *x=*y;
+                    }
                 }
-                offs=tmat.len();
+                offs+=lnrows;
             }
         }
 
@@ -348,7 +369,7 @@ impl <F : Lapack<F=F>+Num+ToPrimitive+Copy + std::fmt::Display > SparseQR<F>{
         for level in self.levels.iter(){
             for node in level.iter().cloned(){
                 //Get permutation vector corresponding to upper triangular part
-                let perm : Vec<usize> = self.triu[node].iter().map(|&n|self.nodes[n].clone()).flatten().collect();
+                let perm : Vec<usize> = self.tril[node].iter().map(|&n|self.nodes[n].clone()).flatten().collect();
                 //Permutation corresponding to diagonal block
                 let permd : Vec<usize> = self.nodes[node].clone();
                 let nrows=perm.len();
@@ -398,7 +419,19 @@ impl <F : Lapack<F=F>+Num+ToPrimitive+Copy + std::fmt::Display > SparseQR<F>{
                     let lda=(rmat.len()/ncols) as i32;
                     let ldb=nrows as i32;
                     let mut info = 0 as i32;
+
+                    if check_zero_diagonal(lda as usize,ncols,&rmat){
+                        println!("{:?}",*level);
+                        println!("{:?}",node);
+                        print_mat(lda as usize,ncols,&rmat);
+                        panic!("Zero found on diagonal of an R matrix (input sparse matrix was singular)");
+                    }
+
+
                     F::xtrtrs(uplo,trans,diag,n,nrhs as i32,&rmat,lda,&mut tmpd,nrowsd as i32,&mut info);
+
+
+
                     if info!=0{
                         print_diag(lda as usize,ncols,&rmat);
                     }
