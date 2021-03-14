@@ -369,7 +369,7 @@ impl <F : Lapack<F=F>+Num+ToPrimitive+Copy + std::fmt::Display> SparseQR<F>{
         for level in self.levels.iter(){
             for node in level.iter().cloned(){
                 //Get permutation vector corresponding to upper triangular part
-                let perm : Vec<usize> = self.tril[node].iter().map(|&n|self.nodes[n].clone()).flatten().collect();
+                let perm : Vec<usize> = self.triu[node].iter().map(|&n|self.nodes[n].clone()).flatten().collect();
                 //Permutation corresponding to diagonal block
                 let permd : Vec<usize> = self.nodes[node].clone();
                 let nrows=perm.len();
@@ -439,7 +439,29 @@ impl <F : Lapack<F=F>+Num+ToPrimitive+Copy + std::fmt::Display> SparseQR<F>{
                 }
 
 
-                //Update remaining values
+
+                if perm.len()>0{
+                    //Update remaining values
+                    //out<----out - A*B
+                    {
+
+                        let transa : u8 = b'N';
+                        let transb : u8 = b'N';
+                        let m = perm.len() as i32;
+                        let n = nrhs as i32;
+                        let k = self.nodes[node].len() as i32;
+                        let amat=&self.triu_num[node];
+                        let bmat=&tmpd;
+
+                        println!("m: {:?},   n:  {:?},    k:   {:?}",m,n,k);
+                        println!("{:?}",*level);
+                        println!("{:?}",node);
+                        assert_eq!(bmat.len(),(k*n) as usize);
+                        assert_eq!(amat.len(),(m*k) as usize);
+
+                        F::xgemm(transa,transb,m,n,k,F::zero()-F::one(),amat,m,bmat,k,F::one(),&mut tmp,m);
+                    }
+                }
 
 
 
@@ -459,13 +481,8 @@ impl <F : Lapack<F=F>+Num+ToPrimitive+Copy + std::fmt::Display> SparseQR<F>{
                     }
                 }
 
-
-
-
-
             }
         }
-
 
     }
 }
