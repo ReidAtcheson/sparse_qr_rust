@@ -152,6 +152,55 @@ impl <F : Num+Copy> CSCSparse<F>{
 #[cfg(test)]
 mod tests {
     use crate::sparse::CSCSparse;
+    use crate::gallery::{laplace1d,laplace2d};
+
+
+    #[test]
+    fn sparse_test_slice1(){
+        let m=32;
+        let a=laplace1d::<f64>(m);
+        let rs : Vec<usize> = (0..5).collect();
+        let cs : Vec<usize> = (10..m).collect();
+        let b=a.slice_copy(&rs,&cs);
+        assert_eq!(b.len(),rs.len()*cs.len());
+
+        for x in b.iter(){
+            assert_eq!(*x,0.0);
+        }
+    }
+
+    #[test]
+    fn sparse_test_slice2(){
+        let m=32;
+        let a=laplace1d::<f64>(m);
+        let rs : Vec<usize> = (1..4).collect();
+        let cs : Vec<usize> = (2..4).collect();
+        let b=a.slice_copy(&rs,&cs);
+        assert_eq!(b.len(),rs.len()*cs.len());
+        assert_eq!(b[0],-1.0);
+    }
+    #[test]
+    fn sparse_test_slice3(){
+        let mx=8;
+        let my=8;
+        let m=mx*my;
+
+        let a=laplace2d::<f64>(mx,my);
+        let id = |ix,iy|{iy+my*ix};
+        let rs : Vec<usize> = vec![id(3,3)];
+        let cs : Vec<usize> = vec![id(3,2),id(3,3),id(3,4),id(2,3),id(4,3)];
+        let b=a.slice_copy(&rs,&cs);
+        assert_eq!(b.len(),rs.len()*cs.len());
+
+        assert_eq!(b[0],-1.0);
+        assert_eq!(b[1],4.0);
+        assert_eq!(b[2],-1.0);
+        assert_eq!(b[3],-1.0);
+        assert_eq!(b[4],-1.0);
+    }
+
+
+
 
 
     #[test]
