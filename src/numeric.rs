@@ -156,20 +156,12 @@ impl <F : Lapack<F=F>+Num+ToPrimitive+Copy + std::fmt::Display> SparseQR<F>{
                 for tri in tril[node].iter().cloned(){
                     let lnrows=dtree.nodes[tri].len();
                     let m = nmap.get(&tri).unwrap();
-                    /*
-                    println!("==================");
-                    print_mat(lnrows,ncols,m);
-                    println!("==================");
-                    */
                     for (xs,ys) in trilmat.chunks_exact_mut(nrows).zip(m.chunks_exact(lnrows)){
                         for (x,y) in (&mut xs[offs..offs+lnrows]).into_iter().zip(ys){
                             *x=*y;
                         }
                     }
                     offs+=lnrows;
-                    /*
-                    print_mat(nrows,ncols,trilmat);
-                    */
                 }
 
 
@@ -292,6 +284,7 @@ impl <F : Lapack<F=F>+Num+ToPrimitive+Copy + std::fmt::Display> SparseQR<F>{
                 }
                 offs+=lnrows;
             }
+            triu_num[k]=packed;
         }
 
 
@@ -378,14 +371,16 @@ impl <F : Lapack<F=F>+Num+ToPrimitive+Copy + std::fmt::Display> SparseQR<F>{
                 //Permute upper triangular active data into temporary array
                 let mut tmp = {
                     let mut tmp = vec![F::zero();nrows*nrhs];
-                    //The temporary array and actual input should have same number of columns
-                    assert_eq!(tmp.len()/nrows,inout.len()/self.nrows);
-                    //Loop over columns
-                    for (xs,ys) in tmp.as_mut_slice().chunks_exact_mut(nrowsd).zip(inout.chunks_exact(self.nrows)){
-                        //Loop over entries of column
-                        for (i,x) in xs.iter_mut().enumerate(){
-                            let pi=perm[i];
-                            *x=ys[pi];
+                    if nrows>0{
+                        //The temporary array and actual input should have same number of columns
+                        assert_eq!(tmp.len()/nrows,inout.len()/self.nrows);
+                        //Loop over columns
+                        for (xs,ys) in tmp.as_mut_slice().chunks_exact_mut(nrowsd).zip(inout.chunks_exact(self.nrows)){
+                            //Loop over entries of column
+                            for (i,x) in xs.iter_mut().enumerate(){
+                                let pi=perm[i];
+                                *x=ys[pi];
+                            }
                         }
                     }
                     tmp
@@ -440,7 +435,7 @@ impl <F : Lapack<F=F>+Num+ToPrimitive+Copy + std::fmt::Display> SparseQR<F>{
 
 
 
-                if perm.len()>0{
+                if nrows>0{
                     //Update remaining values
                     //out<----out - A*B
                     {
@@ -453,9 +448,9 @@ impl <F : Lapack<F=F>+Num+ToPrimitive+Copy + std::fmt::Display> SparseQR<F>{
                         let amat=&self.triu_num[node];
                         let bmat=&tmpd;
 
-                        println!("m: {:?},   n:  {:?},    k:   {:?}",m,n,k);
-                        println!("{:?}",*level);
-                        println!("{:?}",node);
+                        //println!("m: {:?},   n:  {:?},    k:   {:?}",m,n,k);
+                        //println!("{:?}",*level);
+                        //println!("{:?}",node);
                         assert_eq!(bmat.len(),(k*n) as usize);
                         assert_eq!(amat.len(),(m*k) as usize);
 
@@ -466,10 +461,12 @@ impl <F : Lapack<F=F>+Num+ToPrimitive+Copy + std::fmt::Display> SparseQR<F>{
 
 
                 //Permute data from temporary array back into in/out array
-                for (xs,ys) in tmp.as_slice().chunks_exact(nrows).zip(inout.chunks_exact_mut(self.nrows)){
-                    for (i,x) in xs.iter().enumerate(){
-                        let pi=perm[i];
-                        ys[pi]=*x;
+                if nrows>0{
+                    for (xs,ys) in tmp.as_slice().chunks_exact(nrows).zip(inout.chunks_exact_mut(self.nrows)){
+                        for (i,x) in xs.iter().enumerate(){
+                            let pi=perm[i];
+                            ys[pi]=*x;
+                        }
                     }
                 }
                 //Permute diagonal block data from temporary array back into in/out array
@@ -496,6 +493,7 @@ mod tests {
     use crate::dtree::DissectionTree;
     use crate::numeric::SparseQR;
     use crate::gallery::laplace2d;
+    use crate::numeric::print_mat;
 
 
     #[test]
@@ -514,7 +512,9 @@ mod tests {
         let rs : Vec<usize> = (0..m).collect();
         let cs : Vec<usize> = (0..10).collect();
         let mut ys = a.slice_copy(&rs,&cs);
+        //print_mat(rs.len(),cs.len(),&ys)
         fact.solve(&mut ys);
+        print_mat(rs.len(),1,&ys)
     }
 
 
