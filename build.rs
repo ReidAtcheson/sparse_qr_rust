@@ -1,6 +1,8 @@
-
+use std::process::Command;
 
 
 fn main() {
-    println!("cargo:rustc-link-search=/home/reidatcheson/Library/metis/lib");
+    let _output = Command::new("sh")
+        .arg("./external/dl_install_metis.sh").output();
+    println!("cargo:rustc-link-search=./external/lib")
 }

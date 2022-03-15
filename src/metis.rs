@@ -5,6 +5,7 @@ use std::fs::File;
 use std::io::Write;
 
 #[link(name = "metis", kind = "static")]
+#[link(name = "GKlib", kind = "static")]
 extern{
     pub fn METIS_ComputeVertexSeparator(nvtxs : *const i64,xadj : *const i64,adjncy : *const i64,
                                     vwgt : *const i64, options : *const i64, sepsize : *mut i64,part : *mut i64) -> i32;
