@@ -1,5 +1,5 @@
 extern crate blas;
-extern crate openblas_src;
+//extern crate openblas_src;
 
 pub mod metis;
 pub mod dtree;
