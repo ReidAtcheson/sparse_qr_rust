@@ -116,7 +116,6 @@ impl MetisGraph{
             unsafe{ 
                 METIS_ComputeVertexSeparator(&nvtxs,self.xadj.as_ptr(),self.adjncy.as_ptr(),std::ptr::null(),std::ptr::null(),&mut sepsize,part.as_mut_ptr())
             };
-            assert!(sepsize != 0);
             assert!(info != METIS_ERROR_INPUT);
             assert!(info != METIS_ERROR_MEMORY);
             assert!(info != METIS_ERROR);
@@ -128,12 +127,6 @@ impl MetisGraph{
         let p1 : Vec<i64> = part.iter().enumerate().filter(|&(_i,v)| *v == PART1).map(|(i,_v)|i as i64).collect();
         let psep : Vec<i64> = part.iter().enumerate().filter(|&(_i,v)| *v == SEPARATOR).map(|(i,_v)|i as i64).collect();
 
-        //These cases can actually happen in practice
-        //but handling them adds a lot of complications
-        //so for now I panic when they happen.
-        assert!(p0.len()>0);
-        assert!(p1.len()>0);
-        assert!(psep.len()>0);
         assert!(p0.len()+p1.len()+psep.len()==self.xadj.len()-1);
 
         (p0,p1,psep)

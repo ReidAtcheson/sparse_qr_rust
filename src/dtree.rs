@@ -64,6 +64,11 @@ impl DissectionTree{
                 if ns.len()>maxnodes{
                     let subg=g.subgraph(&ns);
                     let (p1,p2,sep)=subg.split();
+                    if sep.len() == 0{
+                        nodes.push(ns.iter().map(|&x|x as usize).collect());
+                        parents.push(parent);
+                        continue;
+                    }
 
 
                     //The separator goes into the tree

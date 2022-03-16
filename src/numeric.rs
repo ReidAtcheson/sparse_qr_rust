@@ -580,6 +580,41 @@ mod tests {
     use crate::numeric::permute_in;
 
 
+    #[test]
+    fn arbstencil2d_solve_f64_verysmall(){
+        use num_traits::Zero;
+        type F=f64;
+        let mx = 16;
+        let my = 16;
+        let m = mx*my;
+        let maxnodes=200;
+        //Assemble matrix
+        let lap=arbstencil2d::<F>(mx,my,&[-5.0,1.1,-1.2,0.5,3.0]);
+        //Get squared graph
+        let g = lap.to_metis_graph();
+        let g2 = g.square();
+        //Symbolic factorization
+        let dtree = DissectionTree::new(&g2,maxnodes);
+        //Numeric factorization, consumes input tree
+        let mut fact = SparseQR::<F>::new(dtree,&lap);
+
+        //Make some data to solve with
+        let soln : Vec<F> = (0..m).map(|x| (x as F).sin()+2.0).collect();
+        let mut b = vec![F::zero();soln.len()];
+        lap.eval(&soln,&mut b);
+
+        //Now go back and solve
+        fact.solve(&mut b);
+
+        //Result should be close to `soln`
+        let mut errs : Vec<F> = soln.iter().zip(b.iter()).map(|(&x,&y)|(x-y).abs()/x.abs()).collect();
+        errs.sort_by(|x,y|x.partial_cmp(y).unwrap());
+        let maxerr = errs.last().unwrap();
+        assert!(*maxerr < 1e-11);
+    }
+
+
+
 
 
     #[test]
